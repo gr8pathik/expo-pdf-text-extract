@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- No special permissions needed for PDF text extraction -->
+  <!-- File access is handled by the app's existing permissions -->
+</manifest>

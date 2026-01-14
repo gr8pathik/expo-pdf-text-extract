@@ -1,0 +1,69 @@
+{
+  "name": "expo-pdf-text-extract",
+  "version": "1.0.0",
+  "description": "Native PDF text extraction for React Native and Expo. Extract text content from PDF files using platform-native APIs (PDFKit on iOS, PDFBox on Android). Works with Expo development builds.",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "source": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "pdf",
+    "pdf-extraction",
+    "pdf-text",
+    "text-extraction",
+    "native-module",
+    "expo-module",
+    "pdfkit",
+    "pdfbox",
+    "document-processing",
+    "ocr-alternative",
+    "ios",
+    "android",
+    "expo-module",
+    "pdf-parser",
+    "pdf-reader",
+    "document-scanner"
+  ],
+  "author": {
+    "name": "Pathik Gandhi",
+    "email": "pathikgandhi@gmail.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gr8pathik/expo-pdf-text-extract.git"
+  },
+  "homepage": "https://github.com/gr8pathik/expo-pdf-text-extract#readme",
+  "bugs": {
+    "url": "https://github.com/gr8pathik/expo-pdf-text-extract/issues"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "peerDependencies": {
+    "expo": ">=49.0.0",
+    "react": ">=18.0.0",
+    "react-native": ">=0.72.0"
+  },
+  "devDependencies": {
+    "expo-modules-core": "~2.4.1",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "src",
+    "ios",
+    "android/src",
+    "android/build.gradle",
+    "expo-module.config.json",
+    "README.md",
+    "LICENSE"
+  ]
+}

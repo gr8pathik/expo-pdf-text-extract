@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+
+# Android build
+android/build/
+android/.gradle/
+android/.idea/
+android/local.properties
+
+# iOS build
+ios/build/
+ios/Pods/
+ios/.xcode.env.local
+*.xcworkspace
+*.xcodeproj
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["PdfExtractorModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.pdfextractor.PdfExtractorModule"]
+  }
+}

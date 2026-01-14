@@ -1,0 +1,55 @@
+# Source files (dist is published instead)
+# src/ - keeping src for debugging
+
+# Build artifacts
+android/build/
+android/.gradle/
+android/.idea/
+android/local.properties
+ios/build/
+ios/Pods/
+ios/.xcode.env.local
+
+# Development files
+*.log
+.DS_Store
+Thumbs.db
+
+# Test files
+__tests__/
+*.test.ts
+*.spec.ts
+coverage/
+jest.config.js
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation source (README is included)
+docs/
+
+# Example apps
+example/
+examples/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Lock files (consumers will use their own)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

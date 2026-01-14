@@ -1,0 +1,83 @@
+// Build configuration for the Android native module
+// This file tells Android how to compile our Kotlin code
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'maven-publish'
+
+// Expo Modules use a shared build config
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+if (expoModulesCorePlugin.exists()) {
+  apply from: expoModulesCorePlugin
+  applyKotlinExpoModulesCorePlugin()
+  useCoreDependencies()
+  useDefaultAndroidSdkVersions()
+} else {
+  throw new GradleException("'expo-modules-core' could not be found. Make sure your project has 'expo' installed.")
+}
+
+android {
+  namespace "expo.modules.pdfextractor"
+
+  defaultConfig {
+    minSdkVersion safeExtGet("minSdkVersion", 21)
+    targetSdkVersion safeExtGet("targetSdkVersion", 34)
+
+    // Enable instrumented tests
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+
+  // Configure test options
+  testOptions {
+    unitTests {
+      includeAndroidResources = true
+    }
+  }
+
+  // Enable asset access in tests
+  sourceSets {
+    androidTest {
+      assets.srcDirs = ['src/androidTest/assets']
+    }
+  }
+}
+
+dependencies {
+  // Expo Modules Core - provides the base classes for native modules
+  implementation project(':expo-modules-core')
+
+  // Apache PDFBox for Android - this is what actually reads PDF text
+  // PDFBox is a well-maintained library used by many apps
+  implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+
+  // ===== TEST DEPENDENCIES =====
+
+  // JUnit 4 for test assertions
+  testImplementation 'junit:junit:4.13.2'
+
+  // Android Instrumented Test dependencies
+  androidTestImplementation 'androidx.test:core:1.5.0'
+  androidTestImplementation 'androidx.test:runner:1.5.2'
+  androidTestImplementation 'androidx.test:rules:1.5.0'
+  androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+
+  // Truth for better assertions (by Google)
+  androidTestImplementation 'com.google.truth:truth:1.1.5'
+
+  // Coroutines test support (for async functions)
+  androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3'
+}
+
+// Helper function to safely get extension properties
+def safeExtGet(String prop, Integer fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
