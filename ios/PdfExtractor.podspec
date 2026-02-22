@@ -26,4 +26,5 @@ Pod::Spec.new do |s|
   }
 
   s.source_files = "**/*.{h,m,swift}"
+  s.exclude_files = "**/*Tests*.swift"
 end
