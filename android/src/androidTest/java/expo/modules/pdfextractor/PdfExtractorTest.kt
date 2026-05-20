@@ -8,6 +8,9 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
+import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
+import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import org.junit.Before
@@ -43,6 +46,11 @@ class PdfExtractorTest {
         const val TEST_LINE_1 = "Hello World"
         const val TEST_LINE_2 = "This is a test PDF document"
         const val TEST_LINE_3 = "Created for automated testing"
+
+        // Passwords used for encrypted-PDF tests
+        const val USER_PASSWORD = "secret123"
+        const val OWNER_PASSWORD = "owner-secret"
+        const val WRONG_PASSWORD = "nope-wrong"
     }
 
     @Before
@@ -312,6 +320,143 @@ class PdfExtractorTest {
         }
     }
 
+    // ==================== Encrypted PDF Tests ====================
+    //
+    // These exercise the password-protected PDF support added to the module.
+    // We mirror the native-side behaviour the module relies on so that a
+    // regression in PDFBox or in our usage of it surfaces here first.
+
+    @Test
+    fun encryptedPdf_loadWithoutPassword_shouldThrowInvalidPasswordException() {
+        val encrypted = createEncryptedTestPdf()
+        var thrown: Throwable? = null
+
+        try {
+            PDDocument.load(encrypted, "").close()
+        } catch (e: Throwable) {
+            thrown = e
+        }
+
+        assertThat(thrown).isInstanceOf(InvalidPasswordException::class.java)
+        encrypted.delete()
+    }
+
+    @Test
+    fun encryptedPdf_loadWithCorrectPassword_shouldSucceedAndExtractText() {
+        val encrypted = createEncryptedTestPdf()
+
+        PDDocument.load(encrypted, USER_PASSWORD).use { document ->
+            assertThat(document.isEncrypted).isTrue()
+            val text = PDFTextStripper().apply { sortByPosition = true }.getText(document)
+            assertThat(text).contains(TEST_LINE_1)
+            assertThat(text).contains(TEST_LINE_2)
+            assertThat(text).contains(TEST_LINE_3)
+        }
+
+        encrypted.delete()
+    }
+
+    @Test
+    fun encryptedPdf_loadWithOwnerPassword_shouldAlsoSucceed() {
+        // Either user OR owner password unlocks the document.
+        val encrypted = createEncryptedTestPdf()
+
+        PDDocument.load(encrypted, OWNER_PASSWORD).use { document ->
+            assertThat(document.numberOfPages).isEqualTo(1)
+        }
+
+        encrypted.delete()
+    }
+
+    @Test
+    fun encryptedPdf_loadWithWrongPassword_shouldThrowInvalidPasswordException() {
+        val encrypted = createEncryptedTestPdf()
+        var thrown: Throwable? = null
+
+        try {
+            PDDocument.load(encrypted, WRONG_PASSWORD).close()
+        } catch (e: Throwable) {
+            thrown = e
+        }
+
+        assertThat(thrown).isInstanceOf(InvalidPasswordException::class.java)
+        encrypted.delete()
+    }
+
+    @Test
+    fun encryptedPdf_isEncryptedProperty_shouldBeTrue() {
+        val encrypted = createEncryptedTestPdf()
+
+        PDDocument.load(encrypted, USER_PASSWORD).use { document ->
+            assertThat(document.isEncrypted).isTrue()
+        }
+
+        encrypted.delete()
+    }
+
+    @Test
+    fun clearPdf_isEncryptedProperty_shouldBeFalse() {
+        PDDocument.load(testPdfFile).use { document ->
+            assertThat(document.isEncrypted).isFalse()
+        }
+    }
+
+    @Test
+    fun encryptedPdf_pageCountWithPassword_matchesUnencrypted() {
+        val encrypted = createEncryptedTestPdf()
+
+        PDDocument.load(encrypted, USER_PASSWORD).use { document ->
+            assertThat(document.numberOfPages).isEqualTo(1)
+        }
+
+        encrypted.delete()
+    }
+
+    @Test
+    fun encryptedPdf_extractSpecificPage_withPassword_shouldWork() {
+        // Multi-page encrypted PDF.
+        val multiPage = createMultiPageTestPdf(3)
+        val encrypted = encryptExistingPdf(multiPage, USER_PASSWORD, OWNER_PASSWORD)
+
+        PDDocument.load(encrypted, USER_PASSWORD).use { document ->
+            val stripper = PDFTextStripper().apply {
+                startPage = 2
+                endPage = 2
+            }
+            val text = stripper.getText(document)
+            assertThat(text).contains("Page 2")
+            assertThat(text).doesNotContain("Page 1")
+            assertThat(text).doesNotContain("Page 3")
+        }
+
+        multiPage.delete()
+        encrypted.delete()
+    }
+
+    /**
+     * Detection semantics: a PDF requires a password iff loading with the
+     * empty password throws InvalidPasswordException. This matches what the
+     * native module exposes as `isPasswordProtected`.
+     */
+    @Test
+    fun isPasswordProtected_detectionSemantics_matchesModule() {
+        val encrypted = createEncryptedTestPdf()
+
+        fun requiresPassword(file: File): Boolean {
+            return try {
+                PDDocument.load(file, "").close()
+                false
+            } catch (e: InvalidPasswordException) {
+                true
+            }
+        }
+
+        assertThat(requiresPassword(encrypted)).isTrue()
+        assertThat(requiresPassword(testPdfFile)).isFalse()
+
+        encrypted.delete()
+    }
+
     // ==================== Helper Functions ====================
 
     /**
@@ -341,6 +486,57 @@ class PdfExtractorTest {
         }
 
         return file
+    }
+
+    /**
+     * Create an encrypted single-page test PDF using the same TEST_LINE_* content
+     * as the clear test PDF. Encrypted with USER_PASSWORD / OWNER_PASSWORD.
+     */
+    private fun createEncryptedTestPdf(): File {
+        val file = File(context.cacheDir, "encrypted_test_document.pdf")
+
+        PDDocument().use { document ->
+            val page = PDPage()
+            document.addPage(page)
+
+            PDPageContentStream(document, page).use { content ->
+                content.beginText()
+                content.setFont(PDType1Font.HELVETICA, 12f)
+                content.newLineAtOffset(50f, 700f)
+                content.showText(TEST_LINE_1)
+                content.newLineAtOffset(0f, -20f)
+                content.showText(TEST_LINE_2)
+                content.newLineAtOffset(0f, -20f)
+                content.showText(TEST_LINE_3)
+                content.endText()
+            }
+
+            applyEncryption(document, USER_PASSWORD, OWNER_PASSWORD)
+            document.save(file)
+        }
+
+        return file
+    }
+
+    /**
+     * Load an existing PDF, apply encryption, and write it back to a new file.
+     * Used to encrypt the multi-page test PDF without rebuilding it.
+     */
+    private fun encryptExistingPdf(source: File, userPwd: String, ownerPwd: String): File {
+        val out = File(context.cacheDir, "encrypted_${source.name}")
+        PDDocument.load(source).use { document ->
+            applyEncryption(document, userPwd, ownerPwd)
+            document.save(out)
+        }
+        return out
+    }
+
+    private fun applyEncryption(document: PDDocument, userPwd: String, ownerPwd: String) {
+        val permissions = AccessPermission()
+        val policy = StandardProtectionPolicy(ownerPwd, userPwd, permissions)
+        policy.encryptionKeyLength = 128
+        policy.permissions = permissions
+        document.protect(policy)
     }
 
     /**

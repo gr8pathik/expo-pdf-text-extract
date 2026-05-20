@@ -26,11 +26,18 @@ class PdfExtractorTests: XCTestCase {
 
     private var testPdfURL: URL!
     private var multiPagePdfURL: URL!
+    private var encryptedPdfURL: URL!
+    private var encryptedMultiPagePdfURL: URL!
 
     // Known test content - we create PDFs with this text
     static let TEST_LINE_1 = "Hello World"
     static let TEST_LINE_2 = "This is a test PDF document"
     static let TEST_LINE_3 = "Created for automated testing"
+
+    // Passwords used for encrypted-PDF tests
+    static let USER_PASSWORD = "secret123"
+    static let OWNER_PASSWORD = "owner-secret"
+    static let WRONG_PASSWORD = "nope-wrong"
 
     // MARK: - Setup & Teardown
 
@@ -40,12 +47,16 @@ class PdfExtractorTests: XCTestCase {
         // Create test PDFs with known content
         testPdfURL = createTestPdf()
         multiPagePdfURL = createMultiPageTestPdf(pageCount: 3)
+        encryptedPdfURL = createEncryptedTestPdf()
+        encryptedMultiPagePdfURL = createEncryptedMultiPageTestPdf(pageCount: 3)
     }
 
     override func tearDown() {
         // Cleanup test files
         try? FileManager.default.removeItem(at: testPdfURL)
         try? FileManager.default.removeItem(at: multiPagePdfURL)
+        try? FileManager.default.removeItem(at: encryptedPdfURL)
+        try? FileManager.default.removeItem(at: encryptedMultiPagePdfURL)
 
         super.tearDown()
     }
@@ -280,6 +291,135 @@ class PdfExtractorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: "/nonexistent/file.pdf"), "Non-existent file should not exist")
     }
 
+    // MARK: - Encrypted PDF Tests
+    //
+    // These exercise the password-protected PDF support added to the module.
+    // We mirror the native-side behaviour that the module relies on so that
+    // any regression in PDFKit or in our usage of it surfaces here first.
+
+    func testEncryptedPdf_shouldLoadButBeLocked() {
+        guard let document = PDFDocument(url: encryptedPdfURL) else {
+            XCTFail("PDFDocument should load encrypted PDF (locked state)")
+            return
+        }
+
+        XCTAssertTrue(document.isEncrypted, "Encrypted PDF should report isEncrypted == true")
+        XCTAssertTrue(document.isLocked, "Encrypted PDF should be locked before unlock()")
+    }
+
+    func testEncryptedPdf_unlockWithCorrectPassword_shouldSucceed() {
+        guard let document = PDFDocument(url: encryptedPdfURL) else {
+            XCTFail("Failed to load encrypted PDF")
+            return
+        }
+
+        let unlocked = document.unlock(withPassword: Self.USER_PASSWORD)
+        XCTAssertTrue(unlocked, "unlock(withPassword:) should return true for correct password")
+        XCTAssertFalse(document.isLocked, "Document should not be locked after successful unlock")
+    }
+
+    func testEncryptedPdf_unlockWithOwnerPassword_shouldSucceed() {
+        // Either user OR owner password should unlock the document.
+        guard let document = PDFDocument(url: encryptedPdfURL) else {
+            XCTFail("Failed to load encrypted PDF")
+            return
+        }
+
+        XCTAssertTrue(document.unlock(withPassword: Self.OWNER_PASSWORD),
+                      "Owner password should also unlock the document")
+    }
+
+    func testEncryptedPdf_unlockWithWrongPassword_shouldFail() {
+        guard let document = PDFDocument(url: encryptedPdfURL) else {
+            XCTFail("Failed to load encrypted PDF")
+            return
+        }
+
+        let unlocked = document.unlock(withPassword: Self.WRONG_PASSWORD)
+        XCTAssertFalse(unlocked, "Wrong password should not unlock the document")
+        XCTAssertTrue(document.isLocked, "Document should still be locked after failed unlock")
+    }
+
+    func testEncryptedPdf_extractTextAfterUnlock_shouldContainKnownContent() {
+        guard let document = PDFDocument(url: encryptedPdfURL) else {
+            XCTFail("Failed to load encrypted PDF")
+            return
+        }
+
+        XCTAssertTrue(document.unlock(withPassword: Self.USER_PASSWORD))
+
+        var fullText = ""
+        for pageIndex in 0..<document.pageCount {
+            if let page = document.page(at: pageIndex), let pageText = page.string {
+                fullText += pageText
+            }
+        }
+
+        XCTAssertTrue(fullText.contains(Self.TEST_LINE_1),
+                      "Decrypted text should contain '\(Self.TEST_LINE_1)'")
+        XCTAssertTrue(fullText.contains(Self.TEST_LINE_2),
+                      "Decrypted text should contain '\(Self.TEST_LINE_2)'")
+        XCTAssertTrue(fullText.contains(Self.TEST_LINE_3),
+                      "Decrypted text should contain '\(Self.TEST_LINE_3)'")
+    }
+
+    func testEncryptedPdf_pageStringBeforeUnlock_shouldBeNilOrEmpty() {
+        guard let document = PDFDocument(url: encryptedPdfURL) else {
+            XCTFail("Failed to load encrypted PDF")
+            return
+        }
+
+        XCTAssertTrue(document.isLocked, "Precondition: document must be locked")
+
+        if let page = document.page(at: 0) {
+            let text = page.string ?? ""
+            XCTAssertTrue(text.isEmpty,
+                          "Locked PDF must not yield page text before unlock — got \(text.count) chars")
+        }
+    }
+
+    func testEncryptedMultiPagePdf_unlockAndExtractSpecificPage() {
+        guard let document = PDFDocument(url: encryptedMultiPagePdfURL) else {
+            XCTFail("Failed to load encrypted multi-page PDF")
+            return
+        }
+
+        XCTAssertTrue(document.unlock(withPassword: Self.USER_PASSWORD))
+
+        guard let page = document.page(at: 1) else {
+            XCTFail("Failed to get page 2 of decrypted PDF")
+            return
+        }
+
+        let text = page.string ?? ""
+        XCTAssertTrue(text.contains("Page 2"))
+        XCTAssertFalse(text.contains("Page 1"))
+        XCTAssertFalse(text.contains("Page 3"))
+    }
+
+    func testClearPdf_isLocked_shouldBeFalse() {
+        guard let document = PDFDocument(url: testPdfURL) else {
+            XCTFail("Failed to load test PDF")
+            return
+        }
+
+        XCTAssertFalse(document.isLocked, "Clear PDF should not be locked")
+        XCTAssertFalse(document.isEncrypted, "Clear PDF should not be encrypted")
+    }
+
+    /// Detection semantics: a PDF requires a password iff PDFDocument.isLocked
+    /// is true. This matches what the native module exposes as `isPasswordProtected`.
+    func testIsPasswordProtected_detectionSemantics_matchesModule() {
+        let encrypted = PDFDocument(url: encryptedPdfURL)
+        let clear = PDFDocument(url: testPdfURL)
+
+        XCTAssertNotNil(encrypted, "Encrypted PDF should still produce a non-nil PDFDocument")
+        XCTAssertNotNil(clear)
+
+        XCTAssertEqual(encrypted?.isLocked, true)
+        XCTAssertEqual(clear?.isLocked, false)
+    }
+
     // MARK: - Performance Tests
 
     func testExtractText_performance() {
@@ -305,8 +445,8 @@ class PdfExtractorTests: XCTestCase {
      * Create a test PDF with known content
      * This ensures tests are reproducible without external files
      */
-    private func createTestPdf() -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test_document.pdf")
+    private func createTestPdf(name: String = "test_document.pdf") -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
 
         // Create PDF using UIGraphics
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter size
@@ -335,10 +475,52 @@ class PdfExtractorTests: XCTestCase {
     }
 
     /**
+     * Create an encrypted single-page test PDF with the same TEST_LINE_* content.
+     * Encrypted with USER_PASSWORD / OWNER_PASSWORD.
+     */
+    private func createEncryptedTestPdf() -> URL {
+        let clearURL = createTestPdf(name: "clear_for_encryption.pdf")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("encrypted_test_document.pdf")
+
+        guard let document = PDFDocument(url: clearURL) else {
+            XCTFail("Failed to load clear PDF for re-encryption")
+            return url
+        }
+
+        let options: [PDFDocumentWriteOption: Any] = [
+            .userPasswordOption: Self.USER_PASSWORD,
+            .ownerPasswordOption: Self.OWNER_PASSWORD,
+        ]
+        document.write(to: url, withOptions: options)
+
+        try? FileManager.default.removeItem(at: clearURL)
+        return url
+    }
+
+    private func createEncryptedMultiPageTestPdf(pageCount: Int) -> URL {
+        let clearURL = createMultiPageTestPdf(pageCount: pageCount, name: "clear_multi_for_encryption.pdf")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("encrypted_multi_test.pdf")
+
+        guard let document = PDFDocument(url: clearURL) else {
+            XCTFail("Failed to load clear multi-page PDF for re-encryption")
+            return url
+        }
+
+        let options: [PDFDocumentWriteOption: Any] = [
+            .userPasswordOption: Self.USER_PASSWORD,
+            .ownerPasswordOption: Self.OWNER_PASSWORD,
+        ]
+        document.write(to: url, withOptions: options)
+
+        try? FileManager.default.removeItem(at: clearURL)
+        return url
+    }
+
+    /**
      * Create a multi-page test PDF
      */
-    private func createMultiPageTestPdf(pageCount: Int) -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("multi_page_test.pdf")
+    private func createMultiPageTestPdf(pageCount: Int, name: String = "multi_page_test.pdf") -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
 
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect)

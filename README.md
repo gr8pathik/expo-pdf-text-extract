@@ -10,6 +10,7 @@ Native PDF text extraction for React Native and Expo. Extract text content from 
 
 - **Native Performance** - Uses PDFKit (iOS) and PDFBox (Android) for fast, reliable extraction
 - **No OCR Required** - Extracts embedded text directly from digital PDFs
+- **Password-Protected PDFs** - First-class support for encrypted PDFs on both platforms
 - **Expo Compatible** - Works with Expo development builds (SDK 49+)
 - **TypeScript Support** - Full type definitions included
 - **Simple API** - Just one function to extract text
@@ -105,12 +106,12 @@ if (isAvailable()) {
 }
 ```
 
-### `extractText(filePath)`
+### `extractText(filePath, password?)`
 
 Extract all text from a PDF file.
 
 ```typescript
-function extractText(filePath: string): Promise<string>
+function extractText(filePath: string, password?: string): Promise<string>
 ```
 
 **Parameters:**
@@ -118,13 +119,15 @@ function extractText(filePath: string): Promise<string>
   - `file:///path/to/file.pdf` - File URI
   - `/absolute/path/to/file.pdf` - Absolute path
   - `content://...` - Content URI (Android document picker)
+- `password` *(optional)* - Password for encrypted PDFs. Omit for clear PDFs.
 
 **Returns:** Promise resolving to extracted text
 
-**Throws:**
-- Error if native module not available
-- Error if file not found
-- Error if PDF is invalid or corrupted
+**Throws:** an `Error` with a stable `.code`:
+- `'PASSWORD_REQUIRED'` - PDF is encrypted and no password was supplied
+- `'INCORRECT_PASSWORD'` - The supplied password does not unlock the PDF
+- generic error if file not found or PDF is invalid / corrupted
+- error if native module not available (Expo Go)
 
 **Example:**
 ```typescript
@@ -142,13 +145,16 @@ if (!result.canceled) {
 }
 ```
 
-### `getPageCount(filePath)`
+### `getPageCount(filePath, password?)`
 
 Get the number of pages in a PDF.
 
 ```typescript
-function getPageCount(filePath: string): Promise<number>
+function getPageCount(filePath: string, password?: string): Promise<number>
 ```
+
+Throws `PASSWORD_REQUIRED` / `INCORRECT_PASSWORD` for encrypted PDFs without a
+valid password (same error semantics as `extractText`).
 
 **Example:**
 ```typescript
@@ -158,17 +164,22 @@ const pages = await getPageCount('/path/to/document.pdf');
 console.log(`PDF has ${pages} pages`);
 ```
 
-### `extractTextFromPage(filePath, pageNumber)`
+### `extractTextFromPage(filePath, pageNumber, password?)`
 
 Extract text from a specific page.
 
 ```typescript
-function extractTextFromPage(filePath: string, pageNumber: number): Promise<string>
+function extractTextFromPage(
+  filePath: string,
+  pageNumber: number,
+  password?: string,
+): Promise<string>
 ```
 
 **Parameters:**
 - `filePath` - Path to the PDF file
 - `pageNumber` - Page number (1-indexed, first page is 1)
+- `password` *(optional)* - Password for encrypted PDFs
 
 **Example:**
 ```typescript
@@ -185,16 +196,28 @@ for (let i = 1; i <= pageCount; i++) {
 }
 ```
 
-### `extractTextWithInfo(filePath)`
+### `extractTextWithInfo(filePath, password?)`
 
-Extract text with additional metadata.
+Extract text with additional metadata. This is the **non-throwing variant** —
+password failures and other errors are returned as data rather than thrown.
 
 ```typescript
-function extractTextWithInfo(filePath: string): Promise<{
+function extractTextWithInfo(
+  filePath: string,
+  password?: string,
+): Promise<{
   text: string;
   pageCount: number;
   success: boolean;
+  isEncrypted: boolean;          // true if the PDF declared encryption
+  passwordRequired?: boolean;    // true if the call failed because of password
   error?: string;
+  errorCode?:
+    | 'PASSWORD_REQUIRED'
+    | 'INCORRECT_PASSWORD'
+    | 'FILE_NOT_FOUND'
+    | 'CORRUPT_PDF'
+    | 'UNKNOWN';
 }>
 ```
 
@@ -205,11 +228,68 @@ import { extractTextWithInfo } from 'expo-pdf-text-extract';
 const result = await extractTextWithInfo('/path/to/document.pdf');
 
 if (result.success) {
-  console.log(`Extracted ${result.text.length} characters from ${result.pageCount} pages`);
+  console.log(`Extracted ${result.text.length} chars from ${result.pageCount} pages`);
+} else if (result.passwordRequired) {
+  // prompt user for a password and retry with extractTextWithInfo(uri, pwd)
 } else {
-  console.error('Extraction failed:', result.error);
+  console.error('Extraction failed:', result.error, result.errorCode);
 }
 ```
+
+### `isPasswordProtected(filePath)`
+
+Detect whether a PDF actually requires a password to read.
+
+```typescript
+function isPasswordProtected(filePath: string): Promise<boolean>
+```
+
+Returns `true` only if the PDF cannot be opened without a password. PDFs that
+declare encryption but unlock with an empty password return `false` — they can
+be read by `extractText` without supplying a password.
+
+## Password-Protected PDFs
+
+`extractText`, `getPageCount`, and `extractTextFromPage` accept an optional
+`password` parameter. If the PDF is encrypted and no password (or the wrong
+password) is provided, the call throws an `Error` with a stable `.code`:
+
+| `.code`              | Meaning                                            |
+| -------------------- | -------------------------------------------------- |
+| `PASSWORD_REQUIRED`  | PDF is encrypted and no password was supplied      |
+| `INCORRECT_PASSWORD` | Supplied password does not unlock the PDF          |
+
+Use `isPasswordProtected(filePath)` for a fast detection check before
+prompting the user for a password.
+
+### Example
+
+```typescript
+import {
+  isPasswordProtected,
+  extractText,
+} from 'expo-pdf-text-extract';
+
+async function readPdf(uri: string) {
+  if (await isPasswordProtected(uri)) {
+    const password = await promptUserForPassword();
+    try {
+      return await extractText(uri, password);
+    } catch (e: any) {
+      if (e.code === 'INCORRECT_PASSWORD') {
+        // ask the user again
+        return readPdf(uri);
+      }
+      throw e;
+    }
+  }
+  return extractText(uri);
+}
+```
+
+If you prefer error-as-data over try/catch, use `extractTextWithInfo` — it
+never throws on password issues and returns `passwordRequired: true` plus an
+`errorCode` instead.
 
 ## Usage with Document Picker
 
@@ -311,8 +391,10 @@ npx expo run:android
 
 If `extractText()` returns empty string:
 1. **Scanned PDF** - The PDF contains images, not text. Use OCR instead.
-2. **Protected PDF** - The PDF has copy protection. Text extraction may be blocked.
-3. **Corrupted PDF** - Try opening the PDF in another app to verify it's valid.
+2. **Corrupted PDF** - Try opening the PDF in another app to verify it's valid.
+
+> Password-protected PDFs no longer return empty text — they throw an `Error`
+> with `.code === 'PASSWORD_REQUIRED'`. See [Password-Protected PDFs](#password-protected-pdfs).
 
 ### Slow extraction on large PDFs
 

@@ -1,6 +1,6 @@
 {
   "name": "expo-pdf-text-extract",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Native PDF text extraction for React Native and Expo. Extract text content from PDF files using platform-native APIs (PDFKit on iOS, PDFBox on Android). Works with Expo development builds.",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "jest"
   },
   "keywords": [
     "react-native",
@@ -53,8 +54,18 @@
     "react-native": ">=0.72.0"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.12",
     "expo-modules-core": "~2.4.1",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
     "typescript": "^5.0.0"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/__tests__/**/*.test.ts"
+    ]
   },
   "files": [
     "dist",
