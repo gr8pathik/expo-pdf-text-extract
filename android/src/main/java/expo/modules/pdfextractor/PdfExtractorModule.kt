@@ -106,10 +106,9 @@ class PdfExtractorModule : Module() {
   private fun extractTextFromPdf(filePath: String, password: String?): String {
     return getInputStream(filePath).use { stream ->
       PDDocument.load(stream, password ?: "").use { document ->
-        PDFTextStripper().apply {
-          sortByPosition = true
-          addMoreFormatting = false
-        }.getText(document)
+        (1..document.numberOfPages).joinToString("\n") { page ->
+          layoutTextForPage(document, page)
+        }
       }
     }
   }
@@ -128,13 +127,31 @@ class PdfExtractorModule : Module() {
         if (pageNumber < 1 || pageNumber > document.numberOfPages) {
           throw IllegalArgumentException("Page $pageNumber out of range (1-${document.numberOfPages})")
         }
-        PDFTextStripper().apply {
-          sortByPosition = true
-          startPage = pageNumber
-          endPage = pageNumber
-        }.getText(document)
+        layoutTextForPage(document, pageNumber)
       }
     }
+  }
+
+  /**
+   * One page, with its columns intact. Falls back to the default stripper when
+   * the page yields no positioned glyphs, so an image-only page still returns
+   * the empty text the import flow reads as `no-text`.
+   */
+  private fun layoutTextForPage(document: PDDocument, pageNumber: Int): String {
+    val stripper = LayoutTextStripper().apply {
+      startPage = pageNumber
+      endPage = pageNumber
+    }
+    stripper.getText(document)
+
+    val laidOut = stripper.layoutText()
+    if (laidOut.isNotBlank()) return laidOut
+
+    return PDFTextStripper().apply {
+      sortByPosition = true
+      startPage = pageNumber
+      endPage = pageNumber
+    }.getText(document)
   }
 
   private fun getInputStream(filePath: String): InputStream {

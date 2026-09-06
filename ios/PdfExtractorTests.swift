@@ -439,7 +439,110 @@ class PdfExtractorTests: XCTestCase {
         }
     }
 
+    // MARK: - Layout Tests
+
+    /**
+     * A tabular PDF prints continuation lines indented under their parent row.
+     * `PDFPage.string` drops horizontal position, so the continuation comes back
+     * flush left and is indistinguishable from a real row. `PdfLayout` restores
+     * the indent from line geometry.
+     */
+    func testLayout_shouldIndentContinuationLine() {
+        let url = createColumnarPdf()
+        guard let page = PDFDocument(url: url)?.page(at: 0) else {
+            XCTFail("Failed to load columnar test PDF")
+            return
+        }
+
+        let text = PdfLayout.text(from: page)
+
+        guard let rowLine = text.split(separator: "\n").first(where: { $0.contains("Widget") }),
+              let contLine = text.split(separator: "\n").first(where: { $0.contains("continued") }) else {
+            XCTFail("Expected both the row and its continuation in:\n\(text)")
+            return
+        }
+
+        let rowIndent = rowLine.prefix { $0 == " " }.count
+        let contIndent = contLine.prefix { $0 == " " }.count
+
+        XCTAssertGreaterThan(
+            contIndent, rowIndent,
+            "Continuation should be indented past the row it belongs to; got \(contIndent) vs \(rowIndent) in:\n\(text)"
+        )
+    }
+
+    /**
+     * Regression guard for the naive fix: spacing derived from an absolute
+     * `x / spaceWidth` grid inserts a space between adjacent glyphs, turning
+     * "Widget" into "W i d g e t".
+     */
+    func testLayout_shouldNotSplitWords() {
+        let url = createColumnarPdf()
+        guard let page = PDFDocument(url: url)?.page(at: 0) else {
+            XCTFail("Failed to load columnar test PDF")
+            return
+        }
+
+        let text = PdfLayout.text(from: page)
+
+        XCTAssertTrue(text.contains("Widget"), "Words must not be split by spacing; got:\n\(text)")
+        XCTAssertTrue(text.contains("continued"), "Words must not be split by spacing; got:\n\(text)")
+    }
+
+    /**
+     * Every column of a row belongs to that row, not to a line of its own.
+     */
+    func testLayout_shouldKeepRowColumnsOnOneLine() {
+        let url = createColumnarPdf()
+        guard let page = PDFDocument(url: url)?.page(at: 0) else {
+            XCTFail("Failed to load columnar test PDF")
+            return
+        }
+
+        let text = PdfLayout.text(from: page)
+
+        guard let rowLine = text.split(separator: "\n").first(where: { $0.contains("Widget") }) else {
+            XCTFail("Expected a row line in:\n\(text)")
+            return
+        }
+
+        XCTAssertTrue(rowLine.contains("01/02/26"), "Date column should share the row's line: \(rowLine)")
+        XCTAssertTrue(rowLine.contains("12.34"), "Amount column should share the row's line: \(rowLine)")
+    }
+
     // MARK: - Helper Functions
+
+    /**
+     * A PDF shaped like a statement table: a row whose columns sit at distinct
+     * x offsets, followed by a continuation line indented under the description
+     * column. Reproducible without external files, like the other fixtures.
+     */
+    private func createColumnarPdf(name: String = "columnar_document.pdf") -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+
+        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
+
+        let data = renderer.pdfData { context in
+            context.beginPage()
+
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 12)
+            ]
+
+            // A row: date, description and amount in three columns.
+            "01/02/26".draw(at: CGPoint(x: 50, y: 50), withAttributes: attributes)
+            "Widget Supply Co".draw(at: CGPoint(x: 180, y: 50), withAttributes: attributes)
+            "12.34".draw(at: CGPoint(x: 450, y: 50), withAttributes: attributes)
+
+            // Its continuation, indented under the description column.
+            "continued detail".draw(at: CGPoint(x: 180, y: 68), withAttributes: attributes)
+        }
+
+        try? data.write(to: url)
+
+        return url
+    }
 
     /**
      * Create a test PDF with known content

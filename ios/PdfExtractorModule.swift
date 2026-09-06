@@ -73,6 +73,7 @@ public class PdfExtractorModule: Module {
     return document
   }
 
+
   private func extractText(filePath: String, password: String?, promise: Promise) {
     DispatchQueue.global(qos: .userInitiated).async {
       guard let document = self.openAndUnlock(filePath: filePath, password: password, promise: promise) else {
@@ -81,8 +82,8 @@ public class PdfExtractorModule: Module {
 
       var fullText = ""
       for pageIndex in 0..<document.pageCount {
-        if let page = document.page(at: pageIndex),
-           let pageText = page.string {
+        if let page = document.page(at: pageIndex) {
+          let pageText = PdfLayout.text(from: page)
           fullText += pageText
           if pageIndex < document.pageCount - 1 {
             fullText += "\n"
@@ -120,7 +121,7 @@ public class PdfExtractorModule: Module {
         return
       }
 
-      promise.resolve(page.string ?? "")
+      promise.resolve(PdfLayout.text(from: page))
     }
   }
 

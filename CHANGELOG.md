@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Extracted text now preserves the page's **column layout**. Both platforms
+  previously returned reading order with horizontal position discarded
+  (`PDFPage.string` on iOS, a default `PDFTextStripper` on Android), so an
+  indented continuation line came back flush left and was indistinguishable
+  from a real table row. Tabular documents — bank statements, invoices,
+  reports — now keep the indentation that tells the two apart.
+
+### Changed
+- iOS layout logic lives in a new `PdfLayout` helper; Android's in a new
+  `LayoutTextStripper`. Both are exercised directly by the tests.
+- Pages that yield no positioned glyphs fall back to the previous behaviour,
+  so image-only PDFs still return empty text.
+
+### Compatibility
+- No API change. `extractText`, `extractTextFromPage` and `extractTextWithInfo`
+  keep their signatures; only the whitespace within the returned string differs.
+  Callers that match on substrings are unaffected; callers that compare whole
+  strings byte-for-byte will see added spacing.
+
 ## [1.1.0]
 
 ### Added

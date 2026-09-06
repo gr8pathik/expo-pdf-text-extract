@@ -360,17 +360,38 @@ async function safeExtract(filePath: string): Promise<string | null> {
 }
 ```
 
+## Layout Preservation
+
+Extracted text keeps the page's column layout. Tabular documents — bank
+statements, invoices, reports — print continuation lines indented under the row
+they belong to, and that indentation is the only thing separating them from a
+real row:
+
+```
+  01/02/26   03/02/26   Widget Supply Co        12.34
+                        continued detail
+```
+
+Flattened to reading order the second line reads as a row of its own, which is
+how a downstream parser ends up inventing entries. Both platforms reconstruct
+spacing from glyph geometry, so the distinction survives.
+
+Pages with no text layer (scans) still return an empty string, so the usual
+"is this PDF image-based?" check is unchanged.
+
 ## Platform Differences
 
 ### iOS (PDFKit)
 - Uses Apple's native PDFKit framework
 - Built into iOS, no additional dependencies
 - Excellent support for standard PDF formats
+- Column layout is reconstructed from line geometry (see Layout Preservation)
 - Minimum iOS version: 15.1
 
 ### Android (PDFBox)
 - Uses Apache PDFBox (Android port)
-- Text is sorted by position on page for better readability
+- Text is sorted by position on page, and column layout is reconstructed
+  from glyph offsets (see Layout Preservation)
 - Handles compressed PDF streams (FlateDecode, etc.)
 - Minimum API level: 21
 

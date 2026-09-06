@@ -463,6 +463,94 @@ class PdfExtractorTest {
      * Create a test PDF with known content
      * This ensures tests are reproducible without external files
      */
+    // ---- Layout ----
+
+    /**
+     * A tabular PDF prints continuation lines indented under their parent row.
+     * The default stripper drops horizontal position, so the continuation comes
+     * back flush left and is indistinguishable from a real row.
+     */
+    @Test
+    fun layout_indentsContinuationLine() {
+        val text = layoutTextOf(createColumnarPdf())
+
+        val row = text.lines().first { it.contains("Widget") }
+        val continuation = text.lines().first { it.contains("continued") }
+
+        assertThat(continuation.takeWhile { it == ' ' }.length)
+            .isGreaterThan(row.takeWhile { it == ' ' }.length)
+    }
+
+    /**
+     * Regression guard for the naive fix: spacing derived from an absolute
+     * `x / spaceWidth` grid inserts a space between adjacent glyphs, turning
+     * "Widget" into "W i d g e t".
+     */
+    @Test
+    fun layout_doesNotSplitWords() {
+        val text = layoutTextOf(createColumnarPdf())
+
+        assertThat(text).contains("Widget")
+        assertThat(text).contains("continued")
+    }
+
+    /** Every column of a row belongs to that row, not to a line of its own. */
+    @Test
+    fun layout_keepsRowColumnsOnOneLine() {
+        val text = layoutTextOf(createColumnarPdf())
+
+        val row = text.lines().first { it.contains("Widget") }
+
+        assertThat(row).contains("01/02/26")
+        assertThat(row).contains("12.34")
+    }
+
+    private fun layoutTextOf(file: File): String =
+        PDDocument.load(file).use { document ->
+            val stripper = LayoutTextStripper().apply {
+                startPage = 1
+                endPage = 1
+            }
+            stripper.getText(document)
+            stripper.layoutText()
+        }
+
+    /**
+     * A PDF shaped like a statement table: a row whose columns sit at distinct
+     * x offsets, followed by a continuation line indented under the description
+     * column. Reproducible without external files, like the other fixtures.
+     */
+    private fun createColumnarPdf(): File {
+        val file = File(context.cacheDir, "columnar_document.pdf")
+
+        PDDocument().use { document ->
+            val page = PDPage()
+            document.addPage(page)
+
+            PDPageContentStream(document, page).use { content ->
+                content.setFont(PDType1Font.HELVETICA, 12f)
+
+                // A row: date, description and amount in three columns.
+                for ((x, label) in listOf(50f to "01/02/26", 180f to "Widget Supply Co", 450f to "12.34")) {
+                    content.beginText()
+                    content.newLineAtOffset(x, 700f)
+                    content.showText(label)
+                    content.endText()
+                }
+
+                // Its continuation, indented under the description column.
+                content.beginText()
+                content.newLineAtOffset(180f, 682f)
+                content.showText("continued detail")
+                content.endText()
+            }
+
+            document.save(file)
+        }
+
+        return file
+    }
+
     private fun createTestPdf(): File {
         val file = File(context.cacheDir, "test_document.pdf")
 
